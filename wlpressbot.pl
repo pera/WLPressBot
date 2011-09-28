@@ -8,8 +8,7 @@ use POE;
 use POE qw(Component::IRC);
 use POE::Component::IRC::Common qw( :ALL );
 use XML::Simple;
-use XML::Feed;
-use DateTime;
+use XML::FeedPP;
 
 # autoflush
 $|=1;
@@ -18,13 +17,14 @@ if(!$ARGV[0]){
 	die "Unspecified channel";
 }
 
-my $version = '0.1';
+my $version = '0.2';
 
 my $config = XMLin('config.xml');
 
 my $nickname = $config->{nick};
 my $username = $config->{user};
-my $server = $config->{server};
+my $server = $config->{server}->{content};
+my $usessl = $config->{server}->{ssl} eq "yes" ? 1 : 0;
 my $port = $config->{port};
 # Si el servidor dispone de NickServ este es el password
 my $nickpass = $config->{nickpass};
@@ -54,7 +54,7 @@ my $irc = POE::Component::IRC->spawn(
     ircname => $ircname,
     server => $server,
 	port => $port,
-	usessl => 1
+	usessl => $usessl,
 ) or die "Oh noooo! $!";
 
 POE::Session->create( package_states => [ main => [ qw(_default _start irc_001 irc_public irc_msg irc_join irc_part irc_quit irc_kick irc_nick) ], ],	heap => { irc => $irc }, );
@@ -65,11 +65,18 @@ POE::Session->create(
 		next   => sub {
 			if( $joined == 1 ){
 				for my $feed (@{$aggregator}) {
+					print "READING ",$feed->getURL(),"\n";
 					my $date = check_feed($feed->getURL(), $feed->getLastDate(), $term);
-					$feed->setLastDate($date);
+					if ($date) {
+						$feed->setLastDate($date);
+					} else {
+						print STDERR "(!) Houston, we have a problem: ",$feed->getURL(),"\n";
+					}
 				}
+				$_[KERNEL]->delay(next => $delay);
+			} else {
+				$_[KERNEL]->delay(next => 20); # wait a few seconds until joining
 			}
-			$_[KERNEL]->delay(next => $delay);
 		},
 	},
 );
@@ -79,22 +86,29 @@ $poe_kernel->run();
 sub check_feed {
 	my ($source, $last, $word) = @_;
 	
-	my $feed = XML::Feed->parse(URI->new($source))
-		or print XML::Feed->errstr;
+	my $feed = eval { XML::FeedPP->new(URI->new($source)); };
 
-	#print $feed->title, "\n";
-
-	for my $entry ($feed->entries) {
-		last if( $entry->issued <= $last );
-		if($entry->content->body=~/(?i)$word/s) {
-			send_msg($channels[0], $entry->title." | ".$entry->link);
+	if ($@) {
+		print "$@";
+	} else {
+		if (defined $feed) {
+			if ($feed->get_item()) {
+				for my $item ($feed->get_item()) {
+					last if( $item->get_pubDate_epoch() <= $last );
+					if($item->description()=~/(?i)$word/s) {
+						send_msg($channels[0], $item->title()." | ".$item->link());
+					}
+				}
+				return ($feed->get_item())[0]->get_pubDate_epoch();
+			}
 		}
 	}
 
-	return ($feed->entries)[0]->issued;
+	# if we are here we have some problem :P
+	return;
 }
 
-# Class Feed
+### Class Feed ###
 {
 	package Feed;
 	
@@ -103,7 +117,7 @@ sub check_feed {
 		my $self = bless {}, $class;
 
 		$self->setURL($url);
-		$self->setLastDate(DateTime->new(year=>2600));
+		$self->setLastDate(1); # epoch
 
 		return $self;
 	}
@@ -129,7 +143,7 @@ sub check_feed {
 	}
 }
 
-# Class Aggregator
+### Class Aggregator ###
 {
 	package Aggregator;
 

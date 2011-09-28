@@ -1,10 +1,10 @@
-<pouetize>
-	<nick>BillMurray</nick>
+<wlpressbot>
+	<nick>BillaMurray</nick>
 	<user>BillMurray</user>
-	<server>chat.wikileaks-press.org</server>
+	<server ssl="yes">irc.freenode.net</server>
 	<port>6697</port>
 	<nickpass></nickpass>
 	<term>wikileaks</term>
-	<delay>15</delay>
-</pouetize>
+	<delay>30</delay>
+</wlpressbot>
 
