@@ -13,6 +13,7 @@ sub brain {
 		when (/!shodan/)	{	send_msg($channel, 'Look at you, hacker. A pathetic creature of meat and bone, panting and sweating as you run through my corridors. How can you challenge a perfect, immortal machine?'); }
 		when (/!tron/)		{	send_msg($channel, 'This is the key to a new order. This code disk means freedom.'); }
 		when (/!joshua/)	{	send_msg($channel, 'Greetings, Professor Falken.'); }
+		when (/!$nickname/)	{	send_msg($channel, 'Back off man. I\'m a scientist.'); }
 
 		### Undefined command reply ###
 		default {

@@ -1,12 +1,14 @@
 #!/usr/bin/perl
-
 use strict;
 use warnings;
 use feature qw(switch);
 use LWP::Simple;
 use POE;
-use POE qw(Component::IRC);
+use POE::Component::IRC;
+use POE::Component::IRC::State;
 use POE::Component::IRC::Common qw( :ALL );
+use POE::Component::IRC::Plugin::Connector;
+use POE::Component::IRC::Plugin::AutoJoin;
 use XML::Simple;
 use XML::FeedPP;
 
@@ -55,13 +57,18 @@ my $irc = POE::Component::IRC->spawn(
     server => $server,
 	port => $port,
 	usessl => $usessl,
-) or die "Oh noooo! $!";
+) or die "Goodbye cruel world! $!";
 
-POE::Session->create( package_states => [ main => [ qw(_default _start irc_001 irc_public irc_msg irc_join irc_part irc_quit irc_kick irc_nick) ], ],	heap => { irc => $irc }, );
+POE::Session->create(
+	package_states => [
+		main => [ qw(_default _start irc_001 irc_public irc_msg irc_join irc_part irc_quit irc_kick irc_nick) ],
+	],
+);
 
 POE::Session->create(
 	inline_states => {
 		_start => sub { $_[KERNEL]->yield("next") },
+		irc_disconnected => sub { $joined = 0 },
 		next   => sub {
 			if( $joined == 1 ){
 				for my $feed (@{$aggregator}) {
@@ -95,8 +102,14 @@ sub check_feed {
 			if ($feed->get_item()) {
 				for my $item ($feed->get_item()) {
 					last if( $item->get_pubDate_epoch() <= $last );
-					if($item->description()=~/(?i)$word/s) {
-						send_msg($channels[0], $item->title()." | ".$item->link());
+					if($item->description()=~/$word/i) {
+						if($item->link()=~/news\.google\.com(.+)url=(.+?)$/) {
+							my $url = $2;
+							$url =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
+							send_msg($channels[0], BOLD.$item->title().NORMAL." | ".$url." (via Google News)");
+						} else {
+							send_msg($channels[0], BOLD.$item->title().NORMAL." | ".$item->link());
+						}
 					}
 				}
 				return ($feed->get_item())[0]->get_pubDate_epoch();
@@ -162,10 +175,16 @@ sub check_feed {
 
 sub _start {
     my $heap = $_[HEAP];
-    my $irc = $heap->{irc};
-    
-    $irc->yield( register => 'all' );
+
+	$irc->yield( register => 'all' );
+
+	$heap->{connector} = POE::Component::IRC::Plugin::Connector->new();
+	$irc->plugin_add( 'Connector' => $heap->{connector} );
+
     $irc->yield( connect => { } );
+
+	$irc->plugin_add( 'AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new(Channels=>\@channels) );
+
     return;
 }
 
@@ -176,7 +195,6 @@ sub irc_001 {
     print "Connected to ", $irc->server_name(), "\n";
 	
 	$irc->yield( nickserv => 'IDENTIFY' => $nickpass );
-    $irc->yield( join => $_ ) for @channels;
     return;
 }
 
@@ -189,7 +207,7 @@ sub irc_public {
 	  &evaluator;
 		eval brain($nick, $channel, $what);
 		if ($@) {
-			send_me($channel, "bawww Im dying D:");
+			send_me($channel, "bawww I am dying D:");
 		}
    }
 
@@ -261,12 +279,12 @@ sub _default {
     my @output = ( "$event:" );
     
     for my $arg (@$args) {
-        if ( ref $arg eq 'ARRAY' ) {
-            push( @output, '[' . join(', ', @$arg ) . ']' );
-        }
-        else {
-            push ( @output, "'$arg'" );
-        }
+		if ( ref $arg eq 'ARRAY' ) {
+			push( @output, '[' . join(', ', @$arg ) . ']' );
+		}
+		else {
+			push ( @output, "'$arg'" );
+		}
     }
     print join ' ', @output, "\n";
     return 0;
