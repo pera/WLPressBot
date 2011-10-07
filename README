@@ -1,0 +1,6 @@
+WLPressBot is a news aggregator for IRC, its function is to periodically
+search within a list of feeds for news that includes a specified term, which
+is determined in the config.xml. The bot will then publish results in a
+channel (which is given as an entry parameter). 
+Currently it is being used by WikiLeaks Press to send notification of any
+publication related to WikiLeaks.

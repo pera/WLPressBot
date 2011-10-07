@@ -2,6 +2,8 @@
 use strict;
 use warnings;
 use feature qw(switch);
+use threads;
+use threads::shared;
 use LWP::Simple;
 use POE;
 use POE::Component::IRC;
@@ -19,7 +21,7 @@ if(!$ARGV[0]){
 	die "Unspecified channel";
 }
 
-my $version = '0.2';
+my $version = '0.3';
 
 my $config = XMLin('config.xml');
 
@@ -41,15 +43,6 @@ my @channels = ('#'.$ARGV[0]);
 
 my $joined = 0;
 
-my $aggregator = Aggregator->new();
-
-open FEEDLIST, "feedlist" or die $!;
-while(<FEEDLIST>){
-	chomp;
-	$aggregator->addFeed($_);
-}
-close FEEDLIST;
-
 my $irc = POE::Component::IRC->spawn( 
     nick => $nickname,
     username => $username,
@@ -58,6 +51,9 @@ my $irc = POE::Component::IRC->spawn(
 	port => $port,
 	usessl => $usessl,
 ) or die "Goodbye cruel world! $!";
+
+my @message_list :shared;
+threads->create( \&obtain_news );
 
 POE::Session->create(
 	package_states => [
@@ -71,16 +67,10 @@ POE::Session->create(
 		irc_disconnected => sub { $joined = 0 },
 		next   => sub {
 			if( $joined == 1 ){
-				for my $feed (@{$aggregator}) {
-					print "READING ",$feed->getURL(),"\n";
-					my $date = check_feed($feed->getURL(), $feed->getLastDate(), $term);
-					if ($date) {
-						$feed->setLastDate($date);
-					} else {
-						print STDERR "(!) Houston, we have a problem: ",$feed->getURL(),"\n";
-					}
+				while(@message_list) {
+					send_msg($channels[0], pop @message_list);
 				}
-				$_[KERNEL]->delay(next => $delay);
+				$_[KERNEL]->delay(next => 60); # wait and then check news list
 			} else {
 				$_[KERNEL]->delay(next => 20); # wait a few seconds until joining
 			}
@@ -89,6 +79,31 @@ POE::Session->create(
 );
 
 $poe_kernel->run();
+
+sub obtain_news {
+	my $aggregator = Aggregator->new();
+
+	open FEEDLIST, "feedlist" or die $!;
+	while(<FEEDLIST>){
+		chomp;
+		$aggregator->addFeed($_);
+	}
+	close FEEDLIST;
+
+	while (1) {
+		for my $feed (@{$aggregator}) {
+			print "READING ",$feed->getURL(),"\n";
+			my $date = check_feed($feed->getURL(), $feed->getLastDate(), $term);
+			if ($date) {
+				$feed->setLastDate($date);
+			} else {
+				print STDERR "(!) Houston, we have a problem: ",$feed->getURL(),"\n";
+			}
+		}
+
+		sleep $delay;
+	}
+}
 
 sub check_feed {
 	my ($source, $last, $word) = @_;
@@ -106,9 +121,9 @@ sub check_feed {
 						if($item->link()=~/news\.google\.com(.+)url=(.+?)$/) {
 							my $url = $2;
 							$url =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
-							send_msg($channels[0], BOLD.$item->title().NORMAL." | ".$url." (via Google News)");
+							push(@message_list, BOLD.$item->title().NORMAL." | ".$url." (via Google News)");
 						} else {
-							send_msg($channels[0], BOLD.$item->title().NORMAL." | ".$item->link());
+							push(@message_list, BOLD.$item->title().NORMAL." | ".$item->link());
 						}
 					}
 				}
