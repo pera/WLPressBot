@@ -53,7 +53,7 @@ my $irc = POE::Component::IRC->spawn(
 ) or die "Goodbye cruel world! $!";
 
 my @message_list :shared;
-threads->create( \&obtain_news );
+my $thr = threads->create( \&obtain_news );
 
 POE::Session->create(
 	package_states => [
@@ -69,6 +69,9 @@ POE::Session->create(
 			if( $joined == 1 ){
 				while(@message_list) {
 					send_msg($channels[0], pop @message_list);
+				}
+				if(!$thr->is_running()) {
+					send_msg($channels[0], BOLD."(!)".NORMAL." The thread is dead. I repeat, the thread is dead.");
 				}
 				$_[KERNEL]->delay(next => 60); # wait and then check news list
 			} else {

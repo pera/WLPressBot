@@ -5,6 +5,6 @@
 	<port>6697</port>
 	<nickpass></nickpass>
 	<term>wikileaks</term>
-	<delay>300</delay>
+	<delay>600</delay>
 </wlpressbot>
 
